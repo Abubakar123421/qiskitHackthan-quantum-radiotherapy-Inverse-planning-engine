@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QURIE quantum beam planner</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Ccircle cx=%2712%27 cy=%2712%27 r=%2710%27 fill=%27none%27 stroke=%27%238fd0ff%27 stroke-width=%272%27/%3E%3Ccircle cx=%2712%27 cy=%2712%27 r=%273%27 fill=%27%23ff8a3d%27/%3E%3C/svg%3E">
+<meta name="description" content="QURIE picks radiotherapy beam angles that cover a breast-cancer target and spare the heart, using QAOA in Qiskit. Tested on 48 real patients.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* QURIE: the look of a radiotherapy treatment-planning console.
+   Layout idea: one long console. The scan + beam dial is always the hero object; text is sparse and sits beside it. */
+:root {
+  --vault: #0a1322;        /* treatment-room dark */
+  --panel: #101c30;
+  --panel-2: #15243c;
+  --line: #24344f;
+  --ink: #e9eff8;
+  --ink-2: #a3b3ca;
+  --ink-3: #7183a0;
+  --beam: #8fd0ff;         /* beams and qubits */
+  --dose: #ff8a3d;         /* radiation */
+  --heart: #ff5d8f;
+  --lung: #5fd4c0;
+  --good: #46d39a;         /* exact optimum confirmed */
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --r: 10px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin: 0; background: var(--vault); color: var(--ink); font: 16px/1.55 var(--font-body);
+  -webkit-font-smoothing: antialiased; }
+a { color: var(--beam); text-underline-offset: 3px; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.12; margin: 0; font-weight: 600; letter-spacing: -0.015em; }
+h1 { font-size: clamp(2.3rem, 5.2vw, 4.1rem); letter-spacing: -0.03em; }
+h2 { font-size: clamp(1.6rem, 3vw, 2.25rem); }
+h3 { font-size: 1.1rem; }
+p { margin: 0; }
+.num, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--beam); outline-offset: 2px; border-radius: 4px; }
+button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+.wrap { width: min(1180px, 100% - 32px); margin-inline: auto; }
+
+/* ---------- top bar ---------- */
+.top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--vault) 86%, transparent);
+  backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.top .wrap { display: flex; align-items: center; gap: 24px; height: 56px; }
+.mark { font-weight: 700; letter-spacing: 0.08em; font-size: 1.05rem; display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
+.mark svg { width: 22px; height: 22px; }
+.top nav { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+.top nav a { color: var(--ink-2); text-decoration: none; padding: 8px 10px; border-radius: 6px; font-size: .92rem; }
+.top nav a:hover { color: var(--ink); background: var(--panel); }
+@media (max-width: 720px) { .top nav a.opt { display: none; } }
+
+/* ---------- hero ---------- */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 40px; align-items: center; padding: 56px 0 40px; }
+.hero .lede { color: var(--ink-2); font-size: 1.12rem; max-width: 46ch; margin-top: 18px; }
+.facts { display: flex; flex-wrap: wrap; gap: 28px; margin-top: 30px; }
+.fact b { display: block; font-family: var(--font-mono); font-size: 1.6rem; font-weight: 500; color: var(--ink); }
+.fact span { color: var(--ink-3); font-size: .88rem; }
+.cta { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink); text-decoration: none; font-weight: 500; }
+.btn:hover { border-color: var(--ink-3); }
+.btn.primary { background: var(--beam); color: #04121f; border-color: var(--beam); }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.scanframe { position: relative; aspect-ratio: 1.12; background: #050a12; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.scanframe canvas { width: 100%; height: 100%; display: block; }
+.scanlabel { position: absolute; left: 14px; bottom: 12px; right: 14px; display: flex; justify-content: space-between; gap: 12px;
+  font: 12px/1.4 var(--font-mono); color: var(--ink-3); pointer-events: none; }
+@media (max-width: 860px) { .hero { grid-template-columns: 1fr; padding-top: 32px; } }
+
+/* ---------- sections ---------- */
+section.block { padding: 72px 0; border-top: 1px solid var(--line); }
+.sechead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: end; margin-bottom: 32px; }
+.sechead p { color: var(--ink-2); max-width: 60ch; }
+@media (max-width: 860px) { .sechead { grid-template-columns: 1fr; gap: 12px; } }
+
+/* ---------- planner ---------- */
+.planner { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 1fr); gap: 20px; }
+@media (max-width: 960px) { .planner { grid-template-columns: 1fr; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+.dialpanel { padding: 12px; }
+.dialpanel .scanframe { aspect-ratio: 1.08; border: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--ink-2);
+  font-size: .88rem; display: inline-flex; align-items: center; gap: 6px; }
+.chip:hover { color: var(--ink); border-color: var(--ink-3); }
+.chip[aria-pressed="true"] { background: var(--panel-2); color: var(--ink); border-color: var(--beam); }
+.chip .side { font: 11px var(--font-mono); color: var(--ink-3); }
+.beamchips { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+.beamchips .chip { justify-content: center; font-family: var(--font-mono); padding: 0 4px; min-height: 40px; }
+.beamchips .chip[aria-pressed="true"] { background: color-mix(in srgb, var(--beam) 18%, transparent); }
+.side-col { display: flex; flex-direction: column; gap: 20px; }
+.card { padding: 20px; }
+.card h3 { margin-bottom: 4px; }
+.card .sub { color: var(--ink-3); font-size: .88rem; }
+.meter { display: grid; grid-template-columns: 112px minmax(0, 1fr) 54px; align-items: center; gap: 10px; margin-top: 12px; font-size: .92rem; }
+.meter .bar { position: relative; height: 10px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+.meter .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; transition: width .35s ease; }
+.meter .bar s { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); opacity: .7; text-decoration: none; }
+.meter .v { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.score { display: flex; justify-content: space-between; align-items: baseline; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); gap: 12px; flex-wrap: wrap; }
+.score b { font-family: var(--font-mono); font-size: 1.5rem; font-weight: 500; }
+.hint { color: var(--ink-3); font-size: .86rem; margin-top: 10px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { min-width: 40px; min-height: 36px; background: transparent; border: 0; color: var(--ink-2); font-family: var(--font-mono); border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--panel-2); color: var(--beam); }
+.runrow { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+
+/* shots */
+.shots { margin-top: 20px; padding: 20px; }
+.shots-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: baseline; }
+.histo { position: relative; height: 230px; margin-top: 16px; }
+.histo canvas { width: 100%; height: 100%; display: block; }
+.verdict { margin-top: 14px; padding: 14px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); min-height: 52px; }
+.verdict.ok { border-color: color-mix(in srgb, var(--good) 60%, transparent); }
+.verdict strong { color: var(--good); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; color: var(--ink-3); font-size: .84rem; margin-top: 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* ---------- how ---------- */
+.steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.step { padding: 24px 22px 26px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; background: var(--panel); }
+.step:last-child { border-right: 0; }
+.step .n { font: 500 13px var(--font-mono); color: var(--beam); }
+.step p { color: var(--ink-2); font-size: .95rem; }
+.step svg { width: 100%; height: 110px; }
+@media (max-width: 960px) { .steps { grid-template-columns: 1fr 1fr; } .step:nth-child(2) { border-right: 0; } .step:nth-child(-n+2) { border-bottom: 1px solid var(--line); } }
+@media (max-width: 560px) { .steps { grid-template-columns: 1fr; } .step { border-right: 0; border-bottom: 1px solid var(--line); } }
+
+/* ---------- results ---------- */
+.results { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 960px) { .results { grid-template-columns: 1fr; } }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px; margin-top: 14px; }
+.tile { aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); display: grid; place-items: center;
+  font: 12px var(--font-mono); color: var(--ink-2); position: relative; padding: 0; }
+.tile svg { position: absolute; inset: 4px; width: calc(100% - 8px); height: calc(100% - 8px); }
+.tile span { position: relative; }
+.tile:hover, .tile[aria-pressed="true"] { border-color: var(--beam); color: var(--ink); }
+.tile.R { background: color-mix(in srgb, var(--panel-2) 70%, #1b2a20); }
+.detail { margin-top: 14px; display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; align-items: center; min-height: 160px; }
+.detail svg { width: 150px; height: 150px; }
+.detail dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: .92rem; }
+.detail dt { color: var(--ink-3); }
+.detail dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.bars { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.brow { display: grid; grid-template-columns: 170px minmax(0, 1fr) 48px; gap: 10px; align-items: center; font-size: .9rem; }
+.brow .track { height: 14px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.brow .track i { display: block; height: 100%; border-radius: 4px; }
+.brow .v { font-family: var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.brow.q .lab { color: var(--ink); font-weight: 500; }
+.brow .lab { color: var(--ink-2); }
+.depthbox { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.bigpair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+.bigpair div b { display: block; font: 500 2rem/1.1 var(--font-mono); }
+.bigpair div span { color: var(--ink-3); font-size: .86rem; }
+input[type=range] { width: 100%; accent-color: var(--beam); min-height: 32px; }
+
+/* ---------- scale ---------- */
+.scale { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 860px) { .scale { grid-template-columns: 1fr; } }
+.counter { font: 500 clamp(2rem, 5vw, 3.4rem)/1.05 var(--font-mono); font-variant-numeric: tabular-nums; margin: 14px 0 6px; word-break: break-all; }
+.limits { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 12px; }
+.limits li { padding-left: 18px; position: relative; color: var(--ink-2); }
+.limits li::before { content: ""; position: absolute; left: 0; top: .62em; width: 7px; height: 7px; border-radius: 2px; background: var(--dose); }
+.limits b { color: var(--ink); font-weight: 600; }
+label.ctl { display: flex; justify-content: space-between; color: var(--ink-2); font-size: .9rem; margin-top: 14px; }
+
+footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--ink-3); font-size: .9rem; }
+footer .wrap { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="mark" href="#top" aria-label="QURIE home">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="#8fd0ff" stroke-width="1.5"/><circle cx="12" cy="12" r="2.6" fill="#ff8a3d"/><path d="M12 2v6M2 12h6M18.4 5.6l-4.2 4.2M5.6 18.4l4.2-4.2" stroke="#8fd0ff" stroke-width="1.5"/></svg>
+      QURIE
+    </a>
+    <nav aria-label="Sections">
+      <a href="#try">Try it</a>
+      <a href="#how" class="opt">How it works</a>
+      <a href="#results">Results</a>
+      <a href="#limits" class="opt">Limits</a>
+      <a href="https://github.com/Abubakar123421/qiskitHackthan-quantum-radiotherapy-Inverse-planning-engine" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <div>
+      <h1>Aim the radiation.<br>Spare the heart.</h1>
+      <p class="lede">QURIE is a quantum planner for breast-cancer radiotherapy. It picks which beam angles to use so the target gets its full dose and the heart and lungs get as little as possible. It runs on IBM's Qiskit and was tested on the CT scans of 48 real patients.</p>
+      <div class="facts" id="heroFacts">
+        <div class="fact"><b>48</b><span>real patients</span></div>
+        <div class="fact"><b>100%</b><span>found the best plan</span></div>
+        <div class="fact"><b>47/48</b><span>matched the doctors' angles</span></div>
+      </div>
+      <div class="cta">
+        <a class="btn primary" href="#try">Plan a patient yourself</a>
+        <a class="btn" href="#how">See how it works</a>
+      </div>
+    </div>
+    <div class="scanframe" role="img" aria-label="CT scan of a real patient's chest with the four beams chosen by QURIE and the radiation dose they produce.">
+      <canvas id="heroCanvas"></canvas>
+      <div class="scanlabel"><span id="heroLabel">Patient P03 · left breast</span><span>QURIE plan · 4 beams</span></div>
+    </div>
+  </div>
+
+  <!-- ===================== TRY ===================== -->
+  <section class="block" id="try">
+    <div class="wrap">
+      <div class="sechead">
+        <h2>Your turn: plan the beams, then race the quantum computer</h2>
+        <p>Pick a real patient and choose 4 of the 12 beam angles by clicking around the scan. Watch where the dose lands. Then let QURIE's quantum circuit pick, and see who found the better plan out of all 495 options.</p>
+      </div>
+
+      <div class="planner">
+        <div class="panel dialpanel">
+          <div class="chips" role="group" aria-label="Patient" id="patientChips"></div>
+          <div class="scanframe" style="margin-top:12px">
+            <canvas id="dialCanvas" aria-label="Interactive scan. Click a beam handle around the scan to switch that beam on or off."></canvas>
+            <div class="scanlabel"><span id="dialLabel"></span><span>click the dots to add beams</span></div>
+          </div>
+          <div class="beamchips" role="group" aria-label="Beam angles" id="beamChips"></div>
+          <div class="legend">
+            <span><i style="background:#fff"></i>target</span>
+            <span><i style="background:var(--heart)"></i>heart</span>
+            <span><i style="background:var(--lung)"></i>lungs</span>
+            <span><i style="background:var(--dose)"></i>radiation dose</span>
+            <span><i style="background:var(--beam)"></i>beam</span>
+          </div>
+        </div>
+
+        <div class="side-col">
+          <div class="panel card" aria-live="polite">
+            <h3>Your plan</h3>
+            <p class="sub" id="planSub">Choose 4 beams.</p>
+            <div class="meter"><span>Target covered</span><div class="bar"><i id="mTarget" style="background:var(--beam)"></i></div><span class="v" id="vTarget">–</span></div>
+            <div class="meter"><span>Heart dose</span><div class="bar"><i id="mHeart" style="background:var(--heart)"></i><s id="hHeart"></s></div><span class="v" id="vHeart">–</span></div>
+            <div class="meter"><span>Lung dose</span><div class="bar"><i id="mLung" style="background:var(--lung)"></i><s id="hLung"></s></div><span class="v" id="vLung">–</span></div>
+            <div class="score">
+              <span>Rank among all 495 plans</span>
+              <b id="vRank">–</b>
+            </div>
+            <p class="hint">White ticks show the best possible plan. Lower heart and lung dose and higher target coverage is better; the rank combines all three the way QURIE scores them.</p>
+            <div class="runrow">
+              <button class="btn" id="btnClear" type="button">Clear beams</button>
+              <button class="btn" id="btnHospital" type="button" aria-pressed="false">Show the hospital's angles</button>
+            </div>
+          </div>
+
+          <div class="panel card">
+            <h3>Run the quantum computer</h3>
+            <p class="sub">Circuit depth: more layers means a sharper answer and a bigger circuit.</p>
+            <div class="runrow">
+              <div class="seg" role="group" aria-label="Circuit depth" id="depthSeg"></div>
+            </div>
+            <div class="runrow">
+              <button class="btn primary" id="btnRun" type="button">Measure 100 times</button>
+              <span class="hint" id="circuitInfo" style="margin:0"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel shots">
+        <div class="shots-head">
+          <h3>What the quantum computer measured</h3>
+          <span class="hint" style="margin:0">Each dot is one measurement of the 12-qubit circuit. Each column is one beam plan.</span>
+        </div>
+        <div class="histo"><canvas id="histo" aria-label="Histogram of the 100 measured beam plans"></canvas></div>
+        <div class="verdict" id="verdict" aria-live="polite">Press <b>Measure 100 times</b> to run the circuit for this patient.</div>
+        <div class="legend">
+          <span><i style="background:var(--good)"></i>exact best plan (checked against all 495)</span>
+          <span><i style="background:var(--beam)"></i>other valid plan</span>
+          <span><i style="background:var(--ink-3)"></i>your plan</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== HOW ===================== -->
+  <section class="block" id="how">
+    <div class="wrap">
+      <div class="sechead">
+        <h2>How QURIE turns a treatment plan into a quantum problem</h2>
+        <p>Four steps, from a patient's scan to a checked answer. No physics degree needed.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <span class="n">Step 1</span>
+          <svg viewBox="0 0 220 110" aria-hidden="true">
+            <ellipse cx="110" cy="62" rx="70" ry="40" fill="#15243c" stroke="#24344f"/>
+            <ellipse cx="138" cy="44" rx="24" ry="13" fill="none" stroke="#fff" stroke-width="1.5"/>
+            <ellipse cx="118" cy="70" rx="17" ry="14" fill="none" stroke="#ff5d8f" stroke-width="1.5"/>
+            <g stroke="#8fd0ff" stroke-width="1.2" stroke-dasharray="3 3" opacity=".75">
+              <line x1="138" y1="44" x2="138" y2="4"/><line x1="138" y1="44" x2="196" y2="20"/><line x1="138" y1="44" x2="208" y2="60"/><line x1="138" y1="44" x2="80" y2="6"/><line x1="138" y1="44" x2="40" y2="30"/>
+            </g>
+          </svg>
+          <h3>Scan the patient</h3>
+          <p>Doctors outline the target, the heart and the lungs on a CT scan. QURIE offers 12 possible beam directions around the treated side.</p>
+        </div>
+        <div class="step">
+          <span class="n">Step 2</span>
+          <svg viewBox="0 0 220 110" aria-hidden="true" id="switchSvg"></svg>
+          <h3>Turn angles into switches</h3>
+          <p>Each angle is a switch: on or off. 12 switches become 12 qubits. The rule: exactly 4 switches on, because machine time is limited.</p>
+        </div>
+        <div class="step">
+          <span class="n">Step 3</span>
+          <svg viewBox="0 0 220 110" aria-hidden="true">
+            <g stroke="#24344f">
+              <line x1="10" y1="22" x2="210" y2="22"/><line x1="10" y1="44" x2="210" y2="44"/><line x1="10" y1="66" x2="210" y2="66"/><line x1="10" y1="88" x2="210" y2="88"/>
+            </g>
+            <rect x="22" y="12" width="34" height="86" rx="5" fill="#15243c" stroke="#8fd0ff"/>
+            <text x="39" y="59" fill="#8fd0ff" font-size="10" text-anchor="middle" font-family="IBM Plex Mono">start</text>
+            <rect x="72" y="12" width="40" height="86" rx="5" fill="#2a1a12" stroke="#ff8a3d"/>
+            <text x="92" y="59" fill="#ff8a3d" font-size="10" text-anchor="middle" font-family="IBM Plex Mono">cost</text>
+            <rect x="122" y="12" width="40" height="86" rx="5" fill="#15243c" stroke="#8fd0ff"/>
+            <text x="142" y="59" fill="#8fd0ff" font-size="10" text-anchor="middle" font-family="IBM Plex Mono">mix</text>
+            <text x="187" y="59" fill="#a3b3ca" font-size="11" text-anchor="middle" font-family="IBM Plex Mono">× p</text>
+          </svg>
+          <h3>Let the circuit search</h3>
+          <p>The quantum circuit holds every valid 4-beam plan at once. Cost layers push it toward low heart and lung dose; mixing layers swap one beam for another. Plans that break the rule never appear.</p>
+        </div>
+        <div class="step">
+          <span class="n">Step 4</span>
+          <svg viewBox="0 0 220 110" aria-hidden="true">
+            <g fill="#8fd0ff" opacity=".85">
+              <rect x="20" y="30" width="22" height="70" rx="3" fill="#46d39a"/><rect x="50" y="78" width="22" height="22" rx="3"/><rect x="80" y="86" width="22" height="14" rx="3"/><rect x="110" y="90" width="22" height="10" rx="3"/><rect x="140" y="94" width="22" height="6" rx="3"/><rect x="170" y="96" width="22" height="4" rx="3"/>
+            </g>
+            <text x="31" y="22" fill="#46d39a" font-size="10" text-anchor="middle" font-family="IBM Plex Mono">best</text>
+          </svg>
+          <h3>Measure and check</h3>
+          <p>Measuring the circuit 100 times gives a list of plans; the most common is usually the best. A normal computer then checks all 495 plans to prove it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== RESULTS ===================== -->
+  <section class="block" id="results">
+    <div class="wrap">
+      <div class="sechead">
+        <h2>Tested on 48 real patients</h2>
+        <p>25 left-breast and 23 right-breast patients from a public hospital dataset (Rezaei et al., 2017). The circuit's settings were tuned on one patient and reused, unchanged, on every other.</p>
+      </div>
+      <div class="results">
+        <div class="panel card">
+          <h3>Every patient</h3>
+          <p class="sub">Select a patient to compare QURIE's angles with the angles the hospital actually used. Green tick = quantum found the exact best plan.</p>
+          <div class="tiles" id="tiles" role="group" aria-label="Patients"></div>
+          <div class="detail" id="detail"></div>
+        </div>
+        <div class="panel card">
+          <h3>Who finds the true best plan?</h3>
+          <p class="sub">Share of runs that found the exact optimum, 48 patients, same budget of 100 tries each.</p>
+          <div class="bars" id="bars"></div>
+          <div class="depthbox">
+            <label class="ctl" for="depthRange"><span>Circuit depth</span><span class="num" id="depthVal">p = 10</span></label>
+            <input type="range" id="depthRange" min="0" max="5" step="1" value="4" aria-describedby="depthVal">
+            <div class="bigpair">
+              <div><b id="bigXY">46%</b><span>chance one measurement is the best plan, QURIE</span></div>
+              <div><b id="bigPen" style="color:var(--dose)">0.3%</b><span>same, textbook quantum method</span></div>
+            </div>
+            <p class="hint">A random guess is right 0.2% of the time (1 in 495). Keeping the "exactly 4 beams" rule inside the circuit is what makes the difference.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== LIMITS ===================== -->
+  <section class="block" id="limits">
+    <div class="wrap">
+      <div class="sechead">
+        <h2>What it does not do yet, and where it is going</h2>
+        <p>We would rather you hear the limits from us.</p>
+      </div>
+      <div class="scale">
+        <div class="panel card">
+          <h3>How fast the choices grow</h3>
+          <p class="sub">Number of possible plans for a given number of candidate angles and beams.</p>
+          <label class="ctl" for="nRange"><span>Candidate angles</span><span class="num" id="nVal">12</span></label>
+          <input type="range" id="nRange" min="12" max="180" step="6" value="12">
+          <label class="ctl" for="kRange"><span>Beams per plan</span><span class="num" id="kVal">4</span></label>
+          <input type="range" id="kRange" min="2" max="9" step="1" value="4">
+          <div class="counter" id="counter">495</div>
+          <p class="hint" id="counterNote" style="margin-top:0"></p>
+        </div>
+        <div class="panel card">
+          <h3>Honest limits</h3>
+          <ul class="limits">
+            <li><b>No quantum speed-up yet.</b> At 12 angles a normal computer checks all 495 plans in about 2 milliseconds. That is exactly how we prove every quantum answer is correct.</li>
+            <li><b>Simulated, not on real hardware.</b> The best circuit has about 2,000 two-qubit gates, too many for today's noisy quantum chips.</li>
+            <li><b>Simplified physics.</b> One 2D slice per patient, straight beams, equal beam strengths. Real planning is 3D. Our dose numbers compare plans; they are not clinical doses.</li>
+            <li><b>Not a medical device.</b> QURIE suggests angles for planners to review. It does not diagnose cancer or replace a physicist.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <b style="color:var(--ink)">QURIE</b>, QUantum Radiotherapy Inverse-planning Engine<br>
+      Abubakar, Zeeshan and Muntazir · FAST-NUCES Islamabad · Qiskit Fall Fest 2026
+    </div>
+    <div>
+      Built with Qiskit 2.x (QAOA, XY mixer, StatevectorSampler).<br>
+      Data: Rezaei et al., Data in Brief 13 (2017), doi:10.1016/j.dib.2017.06.002.<br>
+      <a href="https://github.com/Abubakar123421/qiskitHackthan-quantum-radiotherapy-Inverse-planning-engine" rel="noopener">Source code and full report on GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<script src="data.js"></script>
+<script>
+(() => {
+const Q = window.QURIE;
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const C = { beam: css("--beam"), dose: css("--dose"), heart: css("--heart"), lung: css("--lung"), good: css("--good"),
+            ink: css("--ink"), ink2: css("--ink-2"), ink3: css("--ink-3"), line: css("--line"), panel2: css("--panel-2") };
+const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const DEPTHS = ["1", "2", "3", "5", "10", "20"];
+const pct = (v, d = 0) => (100 * v).toFixed(d) + "%";
+
+// ---------- decode patient data ----------
+const dec = (b) => Uint8Array.from(atob(b), (c) => c.charCodeAt(0));
+const P = {};
+for (const [pid, d] of Object.entries(Q.featured)) {
+  const n = d.w * d.h;
+  const dose = dec(d.dose);
+  const beams = [];
+  for (let b = 0; b < 12; b++) beams.push(dose.subarray(b * n, (b + 1) * n));
+  const index = new Map(d.masks.map((m, i) => [m, i]));
+  const order = d.cost.map((c, i) => i).sort((a, b) => d.cost[a] - d.cost[b]);
+  const rank = new Array(d.cost.length); order.forEach((i, r) => (rank[i] = r + 1));
+  P[pid] = { ...d, ct: dec(d.ct), lab: dec(d.lab), beams, index, order, rank, best: order[0] };
+}
+const comboAngles = (pt, mask) => pt.angles.filter((_, i) => mask & (1 << i)).sort((a, b) => a - b);
+
+// ---------- rendering a patient slice ----------
+function baseImage(pt, mask) {
+  const { w, h } = pt, n = w * h, k = 4;
+  const img = new ImageData(w, h);
+  const doseScale = pt.dmax / 255 / k;
+  const sel = []; for (let b = 0; b < 12; b++) if (mask & (1 << b)) sel.push(pt.beams[b]);
+  const doseC = [255, 138, 61];
+  for (let i = 0; i < n; i++) {
+    let g = pt.ct[i];
+    let r = g * 0.82, gg = g * 0.86, bb = g * 0.95;
+    if (sel.length) {
+      let d = 0; for (const s of sel) d += s[i];
+      d = d * doseScale;                       // 1.0 = full prescription
+      if (pt.lab[i] !== 255 && d > 0.03) {
+        const a = Math.min(0.82, 0.18 + 0.64 * Math.min(d / 1.05, 1));
+        const t = Math.min(d / 1.1, 1);
+        const cr = 255, cg = 210 - 150 * t, cb = 120 - 100 * t;
+        r = r * (1 - a) + cr * a; gg = gg * (1 - a) + cg * a; bb = bb * (1 - a) + cb * a;
+      }
+    }
+    const o = i * 4; img.data[o] = r; img.data[o + 1] = gg; img.data[o + 2] = bb; img.data[o + 3] = 255;
+  }
+  return img;
+}
+function outlines(pt) {   // list of boundary pixels per organ code
+  const { w, h, lab } = pt, out = { 1: [], 2: [], 3: [], 4: [] };
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const c = lab[y * w + x]; if (!(c in out)) continue;
+    if (lab[y * w + x - 1] !== c || lab[y * w + x + 1] !== c || lab[(y - 1) * w + x] !== c || lab[(y + 1) * w + x] !== c) out[c].push([x, y]);
+  }
+  return out;
+}
+for (const pt of Object.values(P)) pt.edges = outlines(pt);
+
+function setupCanvas(cv) {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, W: r.width, H: r.height };
+}
+
+// geometry: fit image in canvas leaving a ring for beam handles
+function layout(pt, W, H, ring) {
+  const s = Math.min((W - 2 * ring) / pt.w, (H - 2 * ring) / pt.h);
+  const ox = (W - pt.w * s) / 2, oy = (H - pt.h * s) / 2;
+  const tx = ox + pt.target[0] * s, ty = oy + pt.target[1] * s;
+  const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - Math.max(ring * 0.5, 30);
+  const handle = (deg) => {          // where the ray from the target in beam direction meets the ring
+    const t = (deg * Math.PI) / 180, ux = Math.sin(t), uy = -Math.cos(t);
+    const fx = tx - cx, fy = ty - cy, bq = fx * ux + fy * uy, cq = fx * fx + fy * fy - R * R;
+    const L = -bq + Math.sqrt(Math.max(bq * bq - cq, 0));
+    return [tx + ux * L, ty + uy * L];
+  };
+  return { s, ox, oy, tx, ty, cx, cy, R, handle };
+}
+
+function drawSlice(ctx, W, H, pt, mask, opts = {}) {
+  const ring = opts.ring ?? 34;
+  const g = layout(pt, W, H, ring);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#050a12"; ctx.fillRect(0, 0, W, H);
+  const off = document.createElement("canvas"); off.width = pt.w; off.height = pt.h;
+  off.getContext("2d").putImageData(baseImage(pt, mask), 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(off, g.ox, g.oy, pt.w * g.s, pt.h * g.s);
+  // organ outlines
+  const cols = { 1: "#ffffff", 2: C.heart, 3: C.lung, 4: C.lung };
+  for (const [code, px] of Object.entries(pt.edges)) {
+    ctx.fillStyle = cols[code];
+    const sz = Math.max(1.4, g.s * 0.42);
+    for (const [x, y] of px) ctx.fillRect(g.ox + (x + 0.5) * g.s - sz / 2, g.oy + (y + 0.5) * g.s - sz / 2, sz, sz);
+  }
+  // ring
+  if (opts.handles) {
+    ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(g.cx, g.cy, g.R, 0, 2 * Math.PI); ctx.stroke();
+  }
+  // beams
+  pt.angles.forEach((deg, i) => {
+    const on = mask & (1 << i);
+    const [hx, hy] = g.handle(deg);
+    if (on) {
+      ctx.strokeStyle = C.beam; ctx.lineWidth = 1.6; ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.moveTo(g.tx, g.ty); ctx.lineTo(hx, hy); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (opts.handles) {
+      const best = opts.bestMask && (opts.bestMask & (1 << i));
+      ctx.beginPath(); ctx.arc(hx, hy, on ? 9 : 7, 0, 2 * Math.PI);
+      ctx.fillStyle = on ? C.beam : "#0b1626"; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = on ? C.beam : C.ink3; ctx.stroke();
+      if (best) { ctx.beginPath(); ctx.arc(hx, hy, 13.5, 0, 2 * Math.PI); ctx.strokeStyle = C.good; ctx.lineWidth = 2; ctx.stroke(); }
+      ctx.fillStyle = on ? C.ink : C.ink3; ctx.font = "11px 'IBM Plex Mono', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const dx = hx - g.cx, dy = hy - g.cy, dl = Math.hypot(dx, dy) || 1;
+      ctx.fillText(deg + "°", hx + (dx / dl) * 24, hy + (dy / dl) * 18);
+    }
+  });
+  if (opts.hospital) {
+    ctx.strokeStyle = C.ink; ctx.lineWidth = 1.4; ctx.setLineDash([2, 4]);
+    for (const deg of pt.clinical) { const [hx, hy] = g.handle(deg); ctx.beginPath(); ctx.moveTo(g.tx, g.ty); ctx.lineTo(hx, hy); ctx.stroke(); }
+    ctx.setLineDash([]);
+  }
+  ctx.beginPath(); ctx.arc(g.tx, g.ty, 3, 0, 2 * Math.PI); ctx.fillStyle = C.ink; ctx.fill();
+  return g;
+}
+
+// ---------- hero ----------
+const heroPid = "P03", hero = P[heroPid];
+const heroCv = document.getElementById("heroCanvas");
+function drawHero(prog = 1) {
+  const { ctx, W, H } = setupCanvas(heroCv);
+  const bm = hero.masks[hero.best];
+  const g = drawSlice(ctx, W, H, hero, bm, { ring: 18 });
+  // faint candidate rays
+  ctx.strokeStyle = "rgba(143,208,255,0.16)"; ctx.lineWidth = 1;
+  hero.angles.forEach((deg, i) => { if (bm & (1 << i)) return; const [hx, hy] = g.handle(deg); ctx.beginPath(); ctx.moveTo(g.tx, g.ty); ctx.lineTo(hx, hy); ctx.stroke(); });
+}
+drawHero();
+
+// ---------- planner ----------
+const state = { pid: "P03", mask: 0, depth: "10", hospital: false, shots: null };
+const dialCv = document.getElementById("dialCanvas");
+let geom = null;
+
+function renderPlanner() {
+  const pt = P[state.pid];
+  const { ctx, W, H } = setupCanvas(dialCv);
+  geom = drawSlice(ctx, W, H, pt, state.mask, { handles: true, hospital: state.hospital,
+    bestMask: state.revealBest ? pt.masks[pt.best] : 0 });
+  document.getElementById("dialLabel").textContent = `Patient ${state.pid} · ${pt.side === "L" ? "left" : "right"} breast`;
+  // beam chips
+  const bc = document.getElementById("beamChips");
+  bc.innerHTML = "";
+  pt.angles.forEach((deg, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = deg + "°";
+    b.setAttribute("aria-pressed", !!(state.mask & (1 << i)));
+    b.setAttribute("aria-label", `Beam at ${deg} degrees`);
+    b.onclick = () => toggle(i);
+    bc.appendChild(b);
+  });
+  // meters
+  const n = popcount(state.mask);
+  const bi = pt.best, bestH = pt.heart[bi], bestL = pt.lung[bi];
+  const scaleH = Math.max(...[bestH, ...(n === 4 ? [pt.heart[pt.index.get(state.mask)]] : [])]) * 1.6 + 0.05;
+  const setM = (id, val, max, label) => {
+    document.getElementById("m" + id).style.width = val == null ? "0%" : Math.min(100, (100 * val) / max) + "%";
+    document.getElementById("v" + id).textContent = val == null ? "–" : label;
+  };
+  const hTick = document.getElementById("hHeart"), lTick = document.getElementById("hLung");
+  hTick.style.left = Math.min(99, (100 * bestH) / 0.6) + "%"; lTick.style.left = Math.min(99, (100 * bestL) / 0.8) + "%";
+  if (n === 4) {
+    const i = pt.index.get(state.mask);
+    setM("Target", pt.v95[i], 1, pct(pt.v95[i]));
+    setM("Heart", pt.heart[i], 0.6, pct(pt.heart[i]));
+    setM("Lung", pt.lung[i], 0.8, pct(pt.lung[i]));
+    const r = pt.rank[i];
+    document.getElementById("vRank").textContent = `#${r}`;
+    document.getElementById("vRank").style.color = r === 1 ? C.good : C.ink;
+    document.getElementById("planSub").textContent = r === 1 ? "You found the best possible plan." :
+      `Beams at ${comboAngles(pt, state.mask).join("°, ")}°.`;
+  } else {
+    setM("Target", null); setM("Heart", null); setM("Lung", null);
+    document.getElementById("vRank").textContent = "–"; document.getElementById("vRank").style.color = C.ink;
+    document.getElementById("planSub").textContent = n < 4 ? `Choose ${4 - n} more beam${4 - n === 1 ? "" : "s"}.` : "Too many beams. Remove one.";
+  }
+  document.getElementById("btnHospital").setAttribute("aria-pressed", state.hospital);
+  document.getElementById("btnHospital").textContent = state.hospital ? "Hide the hospital's angles" : "Show the hospital's angles";
+  const xy = Q.summary.xy[state.depth];
+  document.getElementById("circuitInfo").textContent = `12 qubits · ${xy.two_qubit_gates.toLocaleString()} two-qubit gates`;
+}
+const popcount = (m) => { let c = 0; while (m) { c += m & 1; m >>= 1; } return c; };
+function toggle(i) {
+  const on = state.mask & (1 << i);
+  if (!on && popcount(state.mask) >= 4) return flash();
+  state.mask ^= 1 << i; renderPlanner(); drawHisto();
+}
+function flash() { const s = document.getElementById("planSub"); s.textContent = "Only 4 beams allowed. Click a blue dot to remove one first."; }
+
+dialCv.addEventListener("click", (e) => {
+  if (!geom) return;
+  const r = dialCv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  const pt = P[state.pid];
+  let best = -1, bd = 26;
+  pt.angles.forEach((deg, i) => { const [hx, hy] = geom.handle(deg); const d = Math.hypot(hx - x, hy - y); if (d < bd) { bd = d; best = i; } });
+  if (best >= 0) toggle(best);
+});
+dialCv.addEventListener("mousemove", (e) => {
+  if (!geom) return;
+  const r = dialCv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  const near = P[state.pid].angles.some((deg) => { const [hx, hy] = geom.handle(deg); return Math.hypot(hx - x, hy - y) < 26; });
+  dialCv.style.cursor = near ? "pointer" : "default";
+});
+
+// patient chips
+const pc = document.getElementById("patientChips");
+for (const [pid, pt] of Object.entries(P)) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "chip"; b.innerHTML = `${pid} <span class="side">${pt.side === "L" ? "left" : "right"}</span>`;
+  b.setAttribute("aria-pressed", pid === state.pid);
+  b.onclick = () => { state.pid = pid; state.mask = 0; state.shots = null; state.revealBest = false;
+    pc.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", c === b));
+    renderPlanner(); drawHisto(); setVerdict(); };
+  pc.appendChild(b);
+}
+// depth
+const ds = document.getElementById("depthSeg");
+DEPTHS.forEach((d) => {
+  const b = document.createElement("button"); b.type = "button"; b.textContent = "p" + d;
+  b.setAttribute("aria-pressed", d === state.depth); b.setAttribute("aria-label", `Depth ${d}`);
+  b.onclick = () => { state.depth = d; ds.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b)); renderPlanner(); };
+  ds.appendChild(b);
+});
+document.getElementById("btnClear").onclick = () => { state.mask = 0; renderPlanner(); drawHisto(); };
+document.getElementById("btnHospital").onclick = () => { state.hospital = !state.hospital; renderPlanner(); };
+
+// ---------- shots ----------
+function rng(seed) { return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+let runCount = 0;
+function sampleShots(pt, depth) {
+  const probs = pt.probs[depth], cum = []; let s = 0;
+  for (const p of probs) { s += p; cum.push(s); }
+  const r = rng(1000 * runCount + 7 + Number(depth)), out = [];
+  for (let k = 0; k < 100; k++) { const u = r() * s; let lo = 0, hi = cum.length - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (cum[m] < u) lo = m + 1; else hi = m; } out.push(lo); }
+  return out;
+}
+const histoCv = document.getElementById("histo");
+let anim = null;
+function drawHisto(progress = 1) {
+  const { ctx, W, H } = setupCanvas(histoCv);
+  ctx.clearRect(0, 0, W, H);
+  const pt = P[state.pid];
+  if (!state.shots) {
+    ctx.fillStyle = C.ink3; ctx.font = "13px 'IBM Plex Sans', sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("No measurements yet", W / 2, H / 2); return;
+  }
+  const counts = new Map(); state.shots.forEach((i) => counts.set(i, (counts.get(i) || 0) + 1));
+  const cols = [...counts.entries()].sort((a, b) => b[1] - a[1] || pt.cost[a[0]] - pt.cost[b[0]]).slice(0, Math.max(4, Math.min(10, Math.floor(W / 104))));
+  const userIdx = popcount(state.mask) === 4 ? pt.index.get(state.mask) : -1;
+  const n = cols.length, gap = 10, colW = (W - gap * (n - 1)) / n, base = H - 34, dot = Math.min(9, colW / 6);
+  const perRow = Math.max(1, Math.floor(colW / (dot + 2)));
+  const shown = Math.round(100 * progress);
+  const seen = new Map(); let k = 0;
+  // draw dots in shot order up to progress
+  for (const i of state.shots) {
+    if (k++ >= shown) break;
+    const ci = cols.findIndex((c) => c[0] === i); if (ci < 0) continue;
+    const c = seen.get(i) || 0; seen.set(i, c + 1);
+    const x0 = ci * (colW + gap), row = Math.floor(c / perRow), col = c % perRow;
+    const x = x0 + (colW - perRow * (dot + 2)) / 2 + col * (dot + 2) + dot / 2, y = base - 4 - row * (dot + 2) - dot / 2;
+    ctx.beginPath(); ctx.arc(x, y, dot / 2, 0, 2 * Math.PI);
+    ctx.fillStyle = i === pt.best ? C.good : C.beam; ctx.fill();
+  }
+  ctx.font = "11px 'IBM Plex Mono', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  cols.forEach(([i, c], ci) => {
+    const x = ci * (colW + gap) + colW / 2;
+    ctx.fillStyle = i === userIdx ? C.ink : C.ink3;
+    if (i === userIdx) { ctx.strokeStyle = C.ink3; ctx.strokeRect(ci * (colW + gap), 0.5, colW, base - 0.5); }
+    const lab = comboAngles(pt, pt.masks[i]).join(" ");
+    ctx.font = "10px 'IBM Plex Mono', monospace";
+    if (colW > 88) ctx.fillText(lab, x, base + 16);
+    ctx.font = "11px 'IBM Plex Mono', monospace";
+    ctx.fillStyle = C.ink2; ctx.fillText(`#${pt.rank[i]}`, x, base + 30);
+  });
+  ctx.strokeStyle = C.line; ctx.beginPath(); ctx.moveTo(0, base); ctx.lineTo(W, base); ctx.stroke();
+}
+function setVerdict() {
+  const v = document.getElementById("verdict"), pt = P[state.pid];
+  if (!state.shots) { v.className = "verdict"; v.innerHTML = "Press <b>Measure 100 times</b> to run the circuit for this patient."; return; }
+  const counts = new Map(); state.shots.forEach((i) => counts.set(i, (counts.get(i) || 0) + 1));
+  const bestSeen = [...counts.keys()].sort((a, b) => pt.cost[a] - pt.cost[b])[0];
+  const hit = bestSeen === pt.best, nb = counts.get(pt.best) || 0;
+  const user = popcount(state.mask) === 4 ? pt.rank[pt.index.get(state.mask)] : null;
+  v.className = "verdict" + (hit ? " ok" : "");
+  v.innerHTML = (hit
+    ? `<strong>The quantum computer found the best plan</strong>: beams at ${comboAngles(pt, pt.masks[pt.best]).join("°, ")}°. It came up in ${nb} of 100 measurements, and checking all 495 plans confirms it is #1.`
+    : `The best plan in these 100 measurements is #${pt.rank[bestSeen]} of 495. Try a deeper circuit.`)
+    + (user ? ` Your plan ranks #${user}.` : "")
+    + ` Green rings on the scan mark the best beams.`;
+}
+document.getElementById("btnRun").onclick = () => {
+  runCount++;
+  const pt = P[state.pid];
+  state.shots = sampleShots(pt, state.depth); state.revealBest = true;
+  renderPlanner();
+  cancelAnimationFrame(anim);
+  if (reduce) { drawHisto(1); setVerdict(); return; }
+  document.getElementById("verdict").className = "verdict"; document.getElementById("verdict").textContent = "Measuring…";
+  const t0 = performance.now(), dur = 1600;
+  const step = (t) => { const p = Math.min(1, (t - t0) / dur); drawHisto(p); if (p < 1) anim = requestAnimationFrame(step); else setVerdict(); };
+  anim = requestAnimationFrame(step);
+};
+
+// ---------- step 2 switches ----------
+(() => {
+  const svg = document.getElementById("switchSvg"); const on = [2, 3, 7, 8]; let h = "";
+  for (let i = 0; i < 12; i++) {
+    const x = 12 + (i % 6) * 34, y = i < 6 ? 22 : 66, a = on.includes(i);
+    h += `<rect x="${x}" y="${y}" width="26" height="30" rx="6" fill="${a ? "#173452" : "#15243c"}" stroke="${a ? "#8fd0ff" : "#24344f"}"/>`;
+    h += `<text x="${x + 13}" y="${y + 20}" fill="${a ? "#8fd0ff" : "#7183a0"}" font-size="12" text-anchor="middle" font-family="IBM Plex Mono">${a ? 1 : 0}</text>`;
+  }
+  svg.innerHTML = h;
+})();
+
+// ---------- results ----------
+const tiles = document.getElementById("tiles");
+function miniDial(r, size = 150) {
+  const c = size / 2, R = size / 2 - 14;
+  const pos = (deg, rr) => [c + rr * Math.sin((deg * Math.PI) / 180), c - rr * Math.cos((deg * Math.PI) / 180)];
+  let s = `<svg viewBox="0 0 ${size} ${size}" aria-hidden="true"><circle cx="${c}" cy="${c}" r="${R}" fill="none" stroke="${C.line}"/>`;
+  for (const d of r.opt) { const [x, y] = pos(d, R); s += `<line x1="${c}" y1="${c}" x2="${x}" y2="${y}" stroke="${C.beam}" stroke-width="2"/>`; }
+  for (const d of r.clin) { const [x, y] = pos(d, R + 7); s += `<path d="M${x - 4} ${y - 4}L${x + 4} ${y + 4}M${x + 4} ${y - 4}L${x - 4} ${y + 4}" stroke="${C.ink}" stroke-width="1.8"/>`; }
+  s += `<circle cx="${c}" cy="${c}" r="3" fill="${C.dose}"/><text x="${c}" y="12" fill="${C.ink3}" font-size="9" text-anchor="middle" font-family="IBM Plex Mono">front</text></svg>`;
+  return s;
+}
+function showDetail(r) {
+  document.getElementById("detail").innerHTML = miniDial(r) + `<dl>
+    <dt>Patient</dt><dd>${r.pid} · ${r.side === "L" ? "left" : "right"} breast</dd>
+    <dt>QURIE angles</dt><dd style="color:${C.beam}">${r.opt.join("°, ")}°</dd>
+    <dt>Hospital angles</dt><dd>${r.clin.join("°, ")}°</dd>
+    <dt>Quantum found best</dt><dd style="color:${C.good}">${pct(r.found)} of runs</dd>
+    <dt>One-shot chance</dt><dd>${pct(r.popt)}</dd>
+    <dt>Greedy method</dt><dd>${r.greedy_gap > 0.001 ? "+" + r.greedy_gap.toFixed(1) + "% worse" : "also optimal"}</dd>
+    <dt>Heart dose</dt><dd>${pct(r.heart)} vs ${pct(r.heart_clin)} hospital*</dd></dl>`;
+  tiles.querySelectorAll(".tile").forEach((t) => t.setAttribute("aria-pressed", t.dataset.pid === r.pid));
+}
+for (const r of Q.patients) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "tile " + r.side; b.dataset.pid = r.pid;
+  b.setAttribute("aria-label", `${r.pid}, ${r.side === "L" ? "left" : "right"} breast, quantum found the best plan in ${pct(r.found)} of runs`);
+  const tick = r.found === 1 ? `<svg viewBox="0 0 20 20"><path d="M14.5 3.5l2 2" stroke="none"/><circle cx="16" cy="4" r="3" fill="${C.good}"/></svg>` : "";
+  b.innerHTML = `${tick}<span>${r.pid}</span>`;
+  b.onclick = () => showDetail(r);
+  tiles.appendChild(b);
+}
+showDetail(Q.patients.find((r) => r.pid === "P03"));
+document.getElementById("detail").insertAdjacentHTML("afterend",
+  `<p class="hint">Blue lines: QURIE's 4 angles. ✕ marks: the hospital's angles. Shaded tiles are right-breast patients. *Heart dose in our simplified 2D model, with equal beam weights.</p>`);
+
+const S = Q.summary;
+const barsData = [
+  ["QURIE (quantum)", S.xy["10"].found_optimum_rate, C.beam, true],
+  ["Simulated annealing", S.sa_found_rate, C.ink3],
+  ["Greedy", S.greedy_found / S.n_patients, C.ink3],
+  ["Textbook quantum", S.penalty["10"].found_optimum_rate, C.dose],
+  ["Random guessing", S.random_found_rate, C.ink3],
+  ["Evenly spread beams", S.even_found / S.n_patients, C.ink3],
+];
+document.getElementById("bars").innerHTML = barsData.map(([l, v, c, q]) =>
+  `<div class="brow ${q ? "q" : ""}"><span class="lab">${l}</span><span class="track"><i style="width:${(100 * v).toFixed(1)}%;background:${c}"></i></span><span class="v">${pct(v)}</span></div>`).join("");
+const dr = document.getElementById("depthRange");
+const upd = () => { const d = DEPTHS[dr.value];
+  document.getElementById("depthVal").textContent = "p = " + d;
+  document.getElementById("bigXY").textContent = pct(S.xy[d].p_optimal_mean, S.xy[d].p_optimal_mean < 0.1 ? 1 : 0);
+  document.getElementById("bigPen").textContent = pct(S.penalty[d].p_optimal_mean, 1); };
+dr.addEventListener("input", upd); upd();
+
+// ---------- scale ----------
+const choose = (n, k) => { let r = 1n; for (let i = 0n; i < BigInt(k); i++) r = (r * (BigInt(n) - i)) / (i + 1n); return r; };
+const nR = document.getElementById("nRange"), kR = document.getElementById("kRange");
+function updScale() {
+  const n = +nR.value, k = +kR.value, v = choose(n, k);
+  document.getElementById("nVal").textContent = n; document.getElementById("kVal").textContent = k;
+  document.getElementById("counter").textContent = v.toLocaleString("en-US");
+  const secs = Number(v) / 1e9;   // checking a billion plans per second
+  const human = secs < 1 ? "under a second" : secs < 3600 ? `${Math.round(secs / 60)} minutes` : secs < 86400 * 365 ? `${Math.round(secs / 86400)} days` : `${(secs / 86400 / 365).toExponential(1).replace("e+", " × 10^")} years`;
+  document.getElementById("counterNote").textContent = n === 12 && k === 4
+    ? "This is QURIE's demo size: small enough to check every plan, so every quantum answer can be proven."
+    : `Checking a billion plans per second, a normal computer would need ${human}. Real clinics also tilt the couch, which multiplies this again.`;
+}
+nR.addEventListener("input", updScale); kR.addEventListener("input", updScale); updScale();
+
+// ---------- init / resize ----------
+renderPlanner(); drawHisto();
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { drawHero(); renderPlanner(); drawHisto(); }, 120); });
+document.fonts && document.fonts.ready.then(() => { drawHero(); renderPlanner(); drawHisto(); });
+})();
+</script>
+</body>
+</html>
