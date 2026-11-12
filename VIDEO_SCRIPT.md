@@ -102,7 +102,7 @@
 **QURIE: QUantum Radiotherapy Inverse-planning Engine**
 Abubakar · Zeeshan · Muntazir · FAST-NUCES Islamabad
 GitHub: `github.com/Abubakar123421/qiskitHackthan-quantum-radiotherapy-Inverse-planning-engine`
-Live app: https://qurie-app.streamlit.app  ·  Website: https://abubakar123421.github.io/qiskitHackthan-quantum-radiotherapy-Inverse-planning-engine/
+Live app: https://qurie-app.streamlit.app  ·  Website: https://qurie-quantum.vercel.app
 Qiskit Fall Fest 2026
 
 ---

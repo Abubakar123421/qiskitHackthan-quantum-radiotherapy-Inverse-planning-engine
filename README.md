@@ -97,7 +97,7 @@ A random guess hits the optimum 0.2 % of the time (1 in 495). At p = 10 the XY c
 
 ## 5. How to run (judges: start here)
 
-**Interactive website (for everyone):** **https://abubakar123421.github.io/qiskitHackthan-quantum-radiotherapy-Inverse-planning-engine/** (source in `website/`). Plan a patient's beams yourself, then race the quantum computer.
+**Interactive website (for everyone):** **https://qurie-quantum.vercel.app** (source in `website/`). Plan a patient's beams yourself, then race the quantum computer.
 
 **Live Qiskit web app:** **https://qurie-app.streamlit.app**. Pick any of the 48 patients, change beams, circuit depth and heart-vs-lung priority, and the QAOA circuit runs live.
 
