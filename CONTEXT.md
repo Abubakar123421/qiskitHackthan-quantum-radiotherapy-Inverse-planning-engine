@@ -1,6 +1,6 @@
 # CONTEXT: read this first (for teammates and AI assistants)
 
-This file gives anyone (a person, Claude, ChatGPT, Copilot, Cursor...) the full picture of the project so they can continue the work without the original chat. It is the single source of truth for decisions. `README.md` is the judge-facing summary; this file explains the *why*.
+This file gives anyone (a person or an AI coding assistant) the full picture of the project so they can continue the work without the original chat. It is the single source of truth for decisions. `README.md` is the judge-facing summary; this file explains the *why*.
 
 ## 1. The hackathon
 * **Event:** Qiskit Fall Fest 2026 Hackathon. **Deadline: 12 Nov 2026, 11:59 pm Pakistan time (UTC+5).**
