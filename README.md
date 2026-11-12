@@ -97,6 +97,10 @@ A random guess hits the optimum 0.2 % of the time (1 in 495). At p = 10 the XY c
 
 ## 5. How to run (judges: start here)
 
+**Live web app:** [add the Streamlit link here after deploying]. Pick any of the 48 patients, change beams, circuit depth and heart-vs-lung priority, and the QAOA circuit runs live.
+
+Run the web app locally: `streamlit run app.py`
+
 Requires **Python 3.10–3.13**.
 
 ```bash
@@ -134,6 +138,8 @@ Other options: `--patient P04` (any ID from `data/clean_slices/patients.csv`), `
 ## 7. Repository layout
 
 ```
+app.py                   Streamlit web app (live demo)
+demo.py                  terminal demo, every Qiskit step printed
 run_experiment.py        one command: data -> dose -> QUBO -> QAOA + baselines -> results + figures
 qurie/
   real_data.py           loads the 48 real patient slices

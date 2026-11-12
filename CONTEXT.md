@@ -47,6 +47,7 @@ Team of 3–4 CS students, FAST-NUCES Islamabad. They know CS and AI, but **litt
 ## 6. Files
 | File | Purpose |
 |---|---|
+| `app.py` | Streamlit web app (`streamlit run app.py`); deploy on share.streamlit.io, main file `app.py`, Python 3.12 |
 | `demo.py` | live demo, about 10 s, prints every Qiskit step (use this for judges) |
 | `run_experiment.py` | full study (`--quick` = one patient) |
 | `qurie/*.py` | real_data, anatomy (phantom), dose, qubo, qaoa_solver, classical, plots |
@@ -60,6 +61,7 @@ Team of 3–4 CS students, FAST-NUCES Islamabad. They know CS and AI, but **litt
 - [x] Code, real data, results, figures, tests, README, report, video script, clean-install test
 - [ ] Check the dataset licence on the Mendeley page before making the repo public (otherwise remove `data/clean_slices/slices` and add a download note)
 - [ ] Add team names, GitHub link and video link to `QURIE_Report.docx`
+- [ ] Deploy `app.py` on Streamlit Community Cloud and add the link to README and the report
 - [ ] Record and upload the video; open every link in incognito; submit before 11:59 pm
 
 ## 8. Rules for anyone editing
