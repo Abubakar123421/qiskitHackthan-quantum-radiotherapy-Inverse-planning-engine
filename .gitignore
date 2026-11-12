@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+# never commit raw patient scans
+*.dcm
+raw_data/
