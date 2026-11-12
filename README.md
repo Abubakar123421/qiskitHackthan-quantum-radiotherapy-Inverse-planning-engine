@@ -4,6 +4,8 @@
 
 Qiskit Fall Fest 2026 Hackathon · Domain: **Healthcare** · Team: FAST-NUCES Islamabad
 
+**🔗 Live demo: [qurie-quantum.vercel.app](https://qurie-quantum.vercel.app)** · Live Qiskit app: [qurie-app.streamlit.app](https://qurie-app.streamlit.app)
+
 > In 1898 Marie Curie's discovery of radium gave us radiation therapy. QURIE uses a quantum computer to help aim it.
 
 ---
