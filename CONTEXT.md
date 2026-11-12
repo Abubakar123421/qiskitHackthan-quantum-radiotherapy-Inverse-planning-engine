@@ -47,6 +47,7 @@ Team of 3–4 CS students, FAST-NUCES Islamabad. They know CS and AI, but **litt
 ## 6. Files
 | File | Purpose |
 |---|---|
+| `website/` | static interactive site for non-technical judges (index.html + data.js from tools/export_web.py). Vercel: root dir `website` |
 | `app.py` | Streamlit web app (`streamlit run app.py`); deploy on share.streamlit.io, main file `app.py`, Python 3.12 |
 | `demo.py` | live demo, about 10 s, prints every Qiskit step (use this for judges) |
 | `run_experiment.py` | full study (`--quick` = one patient) |

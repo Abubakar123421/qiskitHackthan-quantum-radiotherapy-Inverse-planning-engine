@@ -97,7 +97,9 @@ A random guess hits the optimum 0.2 % of the time (1 in 495). At p = 10 the XY c
 
 ## 5. How to run (judges: start here)
 
-**Live web app:** [add the Streamlit link here after deploying]. Pick any of the 48 patients, change beams, circuit depth and heart-vs-lung priority, and the QAOA circuit runs live.
+**Interactive website (for everyone):** `website/`. Plan a patient's beams yourself, then race the quantum computer. Deploy on Vercel with Root Directory `website`; see `website/README.md`.
+
+**Live Qiskit web app:** [add the Streamlit link here after deploying]. Pick any of the 48 patients, change beams, circuit depth and heart-vs-lung priority, and the QAOA circuit runs live.
 
 Run the web app locally: `streamlit run app.py`
 
@@ -138,6 +140,8 @@ Other options: `--patient P04` (any ID from `data/clean_slices/patients.csv`), `
 ## 7. Repository layout
 
 ```
+website/                 interactive website (static, Vercel-ready)
+tools/export_web.py      exports results for the website
 app.py                   Streamlit web app (live demo)
 demo.py                  terminal demo, every Qiskit step printed
 run_experiment.py        one command: data -> dose -> QUBO -> QAOA + baselines -> results + figures
